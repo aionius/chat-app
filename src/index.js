@@ -3,10 +3,18 @@ const path = require("path");
 const http = require("http");
 const socketIO = require("socket.io");
 
+const Filter = require("bad-words");
+const filter = new Filter();
+
 // initialize express server and socket.io
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server);
+
+const {
+   generateMessage,
+   generateLocationMessage
+} = require("./utils/messages");
 
 const publicDirPath = path.join(__dirname, "../public");
 
@@ -17,28 +25,36 @@ app.use(express.static(publicDirPath));
 // client (emit) -> server (receive) - sendMessage
 
 io.on("connection", socket => {
-   const welcomeMessage = "Welcome!";
-   socket.emit("message", welcomeMessage);
+   socket.on("join", ({ username, room }) => {
+      socket.join(room);
 
-   // emit data to everyone connected to the socket
-   // except the currently connected one
-   socket.broadcast.emit("message", "A new user has joined!");
+      socket.emit("message", generateMessage("Welcome!"));
 
-   socket.on("sendMessage", data => {
-      io.emit("message", data);
+      // emit data to everyone connected to the socket
+      // except the currently connected one
+      socket.broadcast
+         .to(room)
+         .emit("message", generateMessage(`${username} has joined!`));
    });
 
-   socket.on("sendLocation", data => {
-      io.emit(
-         "message",
-         `https://google.com/maps?q=${data.latitude},${data.longitude}`
-      );
+   socket.on("sendMessage", (message, callback) => {
+      if (filter.isProfane(message)) {
+         return callback("Profanity is not allowed.");
+      }
+
+      io.to("Newton").emit("message", generateMessage(message));
+      callback();
+   });
+
+   socket.on("sendLocation", (geodata, callback) => {
+      io.emit("locationMessage", generateLocationMessage(geodata));
+      callback();
    });
 
    // tell everyone connected to the socket that
    // a user disconnected from that socket
    socket.on("disconnect", () => {
-      io.emit("message", "User has left");
+      io.emit("message", generateMessage("A user has left"));
    });
 });
 
